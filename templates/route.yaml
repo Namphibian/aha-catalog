@@ -5,12 +5,16 @@ metadata:
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "app.labels" . | nindent 4 }}
+  {{- if and .Values.app.route .Values.app.route.annotations }}
+  annotations:
+    {{- include "app.annotations" (list .Values.app.route.annotations .) | trim | nindent 4 }}
+  {{- end }}
 spec:
   to:
     kind: Service
     name: {{ include "app.fullname" . }}-svc
     weight: 100
   port:
-    targetPort: {{ .Values.app.ports.serverPort.port }}
+    targetPort: {{ include "app.resolvePort" (list .Values.app.ports.serverPort.port .Values.app.configData "route targetPort") }}
   tls:
     termination: edge

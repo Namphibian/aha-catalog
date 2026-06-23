@@ -5,8 +5,12 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "app.labels" . | nindent 4 }}
+  {{- if and .Values.app.deployment .Values.app.deployment.annotations }}
+  annotations:
+    {{- include "app.annotations" (list .Values.app.deployment.annotations .) | trim | nindent 4 }}
+  {{- end }}
 spec:
-  replicas: {{ .Values.app.replicaCount | default 1 }}
+  replicas: {{ include "app.configValue" (list .Values.app.replicaCount .Values.app.configData "deployment replicas") }}
   selector:
     matchLabels:
       {{- include "app.selectorLabels" . | nindent 6 }}
@@ -31,36 +35,53 @@ spec:
         ports:
 {{- range $pkey, $p := $root.Values.app.ports }}
           - name: {{ lower $p.name }}
-            containerPort: {{ $p.port }}
+            containerPort: {{ include "app.resolvePort" (list $p.port $root.Values.app.configData (printf "container port %s" $pkey)) }}
             protocol: {{ $p.protocol | default "TCP" }}
 {{- end }}
         env:
-          # Inject SERVER_PORT dynamically from ports section
-          - name: SERVER_PORT
-            value: "{{ $apiPort.port }}"
-          # Render all user-defined env vars except SERVER_PORT
           {{- range $key, $value := $root.Values.app.env }}
-            {{- if ne $key "SERVER_PORT" }}
+          {{- $resolved := include "app.configValue" (list $value $root.Values.app.configData (printf "env %s" $key)) }}
+          {{- if and (kindIs "map" $value) (hasKey $value "configDataKey") }}
+          {{- $cfgKey := index $value "configDataKey" }}
+          {{- $entry := index $root.Values.app.configData $cfgKey }}
+          {{- if hasKey $entry "description" }}
+          # {{ index $entry "description" }}
+          {{- end }}
+          {{- end }}
           - name: {{ $key }}
-            {{- if kindIs "slice" $value }}
+            {{- if kindIs "map" $value }}
+              {{- if hasKey $value "configDataKey" }}
+                {{- $cfgKey := index $value "configDataKey" }}
+                {{- $entry := index $root.Values.app.configData $cfgKey }}
+                {{- $entryValue := index $entry "value" }}
+                {{- if kindIs "slice" $entryValue }}
+                  {{- if and (gt (len $entryValue) 0) (kindIs "map" (index $entryValue 0)) }}
+            value: '{{ toJson $entryValue }}'
+                  {{- else }}
+            value: "{{ join "," $entryValue }}"
+                  {{- end }}
+                {{- else }}
+            value: "{{ $resolved }}"
+                {{- end }}
+              {{- else }}
+            value: '{{ toJson $value }}'
+              {{- end }}
+            {{- else if kindIs "slice" $value }}
               {{- if and (gt (len $value) 0) (kindIs "map" (index $value 0)) }}
             value: '{{ toJson $value }}'
               {{- else }}
             value: "{{ join "," $value }}"
               {{- end }}
-            {{- else if kindIs "map" $value }}
-            value: '{{ toJson $value }}'
             {{- else }}
             value: "{{ $value }}"
             {{- end }}
           {{- end }}
-        {{- end }}
         # Liveness Probe
         {{- $liveKey := $root.Values.app.probes.liveness.tcpSocket.port }}
         {{- $livePort := index $root.Values.app.ports $liveKey }}
         livenessProbe:
           tcpSocket:
-            port: {{ $livePort.port }}
+            port: {{ include "app.resolvePort" (list $livePort.port $root.Values.app.configData "liveness probe") }}
           initialDelaySeconds: {{ $root.Values.app.probes.liveness.initialDelaySeconds }}
           periodSeconds: {{ $root.Values.app.probes.liveness.periodSeconds }}
           timeoutSeconds: {{ $root.Values.app.probes.liveness.timeoutSeconds }}
@@ -70,18 +91,39 @@ spec:
         {{- $readyPort := index $root.Values.app.ports $readyKey }}
         readinessProbe:
           tcpSocket:
-            port: {{ $readyPort.port }}
+            port: {{ include "app.resolvePort" (list $readyPort.port $root.Values.app.configData "readiness probe") }}
           initialDelaySeconds: {{ $root.Values.app.probes.readiness.initialDelaySeconds }}
           periodSeconds: {{ $root.Values.app.probes.readiness.periodSeconds }}
           timeoutSeconds: {{ $root.Values.app.probes.readiness.timeoutSeconds }}
           failureThreshold: {{ $root.Values.app.probes.readiness.failureThreshold }}
+        {{- $qos := $root.Values.app.resources.qos | default "Guaranteed" }}
+        {{- if ne $qos "BestEffort" }}
         resources:
+          {{- if eq $qos "Guaranteed" }}
           requests:
-            cpu: {{ $root.Values.app.cpu }}
-            memory: {{ $root.Values.app.memory }}
+            cpu: {{ include "app.configValue" (list $root.Values.app.resources.limits.cpu $root.Values.app.configData "resources limits cpu") }}m
+            memory: {{ include "app.configValue" (list $root.Values.app.resources.limits.memory $root.Values.app.configData "resources limits memory") }}
           limits:
-            cpu: {{ $root.Values.app.cpu }}
-            memory: {{ $root.Values.app.memory }}
+            cpu: {{ include "app.configValue" (list $root.Values.app.resources.limits.cpu $root.Values.app.configData "resources limits cpu") }}m
+            memory: {{ include "app.configValue" (list $root.Values.app.resources.limits.memory $root.Values.app.configData "resources limits memory") }}
+          {{- end }}
+          {{- if eq $qos "Burstable" }}
+          requests:
+            cpu: {{ include "app.configValue" (list $root.Values.app.resources.requests.cpu $root.Values.app.configData "resources requests cpu") }}m
+            memory: {{ include "app.configValue" (list $root.Values.app.resources.requests.memory $root.Values.app.configData "resources requests memory") }}
+          {{- end }}
+          {{- if eq $qos "Burstable" }}
+          {{- if $root.Values.app.resources.limits }}
+          limits:
+            {{- if $root.Values.app.resources.limits.cpu }}
+            cpu: {{ include "app.configValue" (list $root.Values.app.resources.limits.cpu $root.Values.app.configData "resources limits cpu") }}m
+            {{- end }}
+            {{- if $root.Values.app.resources.limits.memory }}
+            memory: {{ include "app.configValue" (list $root.Values.app.resources.limits.memory $root.Values.app.configData "resources limits memory") }}
+            {{- end }}
+          {{- end }}
+          {{- end }}
+        {{- end }}
         {{- if gt (len $pmap) 0 }}
         volumeMounts:
         {{- range $vname, $vcfg := $pmap }}

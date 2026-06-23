@@ -6,6 +6,15 @@ metadata:
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "app.labels" $ | nindent 4 }}
+  {{- if or (and $cfg.backup $cfg.backup.enabled) $cfg.annotations }}
+  annotations:
+    {{- if and $cfg.backup $cfg.backup.enabled }}
+    k10.kasten.io/backup: "true"
+    {{- end }}
+    {{- if $cfg.annotations }}
+    {{- include "app.annotations" (list $cfg.annotations $) | trim | nindent 4 }}
+    {{- end }}
+  {{- end }}
 spec:
   accessModes:
     - {{ $cfg.accessMode }}

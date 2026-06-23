@@ -11,3 +11,4 @@ resources:
   optional:
     - configmap
     - secret
+    -
