@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.app.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- $root := . }}
+      {{- $apiPortKey := $root.Values.app.apiPortKey }}
+      {{- $apiPort := index $root.Values.app.ports $apiPortKey }}
+      {{- $pmap := $root.Values.app.persistence | default dict }}
+      containers:
+      - name: {{ $root.Chart.Name }}
+        image: {{ $root.Values.app.image.repository }}:{{ $root.Values.app.image.tag }}
+        imagePullPolicy: {{ $root.Values.app.image.pullPolicy }}
+        ports:
+{{- range $pkey, $p := $root.Values.app.ports }}
+          - name: {{ lower $p.name }}
+            containerPort: {{ $p.port }}
+            protocol: {{ $p.protocol | default "TCP" }}
+{{- end }}
+        env:
+          # Inject SERVER_PORT dynamically from ports section
+          - name: SERVER_PORT
+            value: "{{ $apiPort.port }}"
+          # Render all user-defined env vars except SERVER_PORT
+          {{- range $key, $value := $root.Values.app.env }}
+            {{- if ne $key "SERVER_PORT" }}
+          - name: {{ $key }}
+            {{- if kindIs "slice" $value }}
+              {{- if and (gt (len $value) 0) (kindIs "map" (index $value 0)) }}
+            value: '{{ toJson $value }}'
+              {{- else }}
+            value: "{{ join "," $value }}"
+              {{- end }}
+            {{- else if kindIs "map" $value }}
+            value: '{{ toJson $value }}'
+            {{- else }}
+            value: "{{ $value }}"
+            {{- end }}
+          {{- end }}
+        {{- end }}
+        # Liveness Probe
+        {{- $liveKey := $root.Values.app.probes.liveness.tcpSocket.port }}
+        {{- $livePort := index $root.Values.app.ports $liveKey }}
+        livenessProbe:
+          tcpSocket:
+            port: {{ $livePort.port }}
+          initialDelaySeconds: {{ $root.Values.app.probes.liveness.initialDelaySeconds }}
+          periodSeconds: {{ $root.Values.app.probes.liveness.periodSeconds }}
+          timeoutSeconds: {{ $root.Values.app.probes.liveness.timeoutSeconds }}
+          failureThreshold: {{ $root.Values.app.probes.liveness.failureThreshold }}
+        # Readiness Probe
+        {{- $readyKey := $root.Values.app.probes.readiness.tcpSocket.port }}
+        {{- $readyPort := index $root.Values.app.ports $readyKey }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ $readyPort.port }}
+          initialDelaySeconds: {{ $root.Values.app.probes.readiness.initialDelaySeconds }}
+          periodSeconds: {{ $root.Values.app.probes.readiness.periodSeconds }}
+          timeoutSeconds: {{ $root.Values.app.probes.readiness.timeoutSeconds }}
+          failureThreshold: {{ $root.Values.app.probes.readiness.failureThreshold }}
+        resources:
+          requests:
+            cpu: {{ $root.Values.app.cpu }}
+            memory: {{ $root.Values.app.memory }}
+          limits:
+            cpu: {{ $root.Values.app.cpu }}
+            memory: {{ $root.Values.app.memory }}
+        {{- if gt (len $pmap) 0 }}
+        volumeMounts:
+        {{- range $vname, $vcfg := $pmap }}
+          - name: '{{ printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname)) }}'
+            mountPath: {{ $vcfg.mountPath }}
+        {{- end }}
+        {{- end }}
+      {{- if gt (len $pmap) 0 }}
+      volumes:
+        {{- range $vname, $vcfg := $pmap }}
+        - name: '{{ printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname)) }}'
+          persistentVolumeClaim:
+            claimName: '{{ default (printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname))) $vcfg.claimName }}'
+        {{- end }}
+      {{- end }}

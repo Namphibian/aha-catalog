@@ -1,0 +1,21 @@
+apiVersion: aha.dev/v1
+kind: Catalog
+
+metadata:
+  name: aha-catalog
+  version: 0.1.0
+  description: Templates and profiles for the Aha CLI.
+
+spec:
+  paths:
+    profiles: profiles
+    templates: templates
+
+  fileTypes:
+    profiles:
+      - .yaml
+      - .yml
+    templates:
+      - .yaml
+      - .yml
+      - .tpl

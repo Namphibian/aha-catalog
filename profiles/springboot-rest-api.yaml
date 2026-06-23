@@ -1,0 +1,13 @@
+name: springboot-rest-api
+resources:
+  mandatory:
+    - deployment
+    - service
+    - ingress
+    - egress
+    - limitrange
+    - resourcequota
+    - namespace
+  optional:
+    - configmap
+    - secret

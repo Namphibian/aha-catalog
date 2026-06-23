@@ -1,0 +1,19 @@
+{{- range $name, $cfg := .Values.app.persistence }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "app.fullname" $ }}-{{ (trim (include "app.kebab" $name)) }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "app.labels" $ | nindent 4 }}
+spec:
+  accessModes:
+    - {{ $cfg.accessMode }}
+  {{- if $cfg.storageClass }}
+  storageClassName: {{ $cfg.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $cfg.size }}
+---
+{{- end }}
