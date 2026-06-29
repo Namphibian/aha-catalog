@@ -23,24 +23,23 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-
       {{- $root := . }}
-      {{- $apiPortKey := $root.Values.app.apiPortKey }}
-      {{- $apiPort := index $root.Values.app.ports $apiPortKey }}
       {{- $pmap := $root.Values.app.persistence | default dict }}
+      {{- $fmap := $root.Values.app.files | default (list) }}
       containers:
       - name: {{ $root.Chart.Name }}
         image: {{ $root.Values.app.image.repository }}:{{ $root.Values.app.image.tag }}
         imagePullPolicy: {{ $root.Values.app.image.pullPolicy }}
         ports:
-{{- range $pkey, $p := $root.Values.app.ports }}
+        {{- range $pkey, $p := $root.Values.app.ports }}
+          {{- if $p.containerPort  }}
           - name: {{ lower $p.name }}
             containerPort: {{ include "app.resolvePort" (list $p.port $root.Values.app.configData (printf "container port %s" $pkey)) }}
             protocol: {{ $p.protocol | default "TCP" }}
-{{- end }}
+          {{- end  }}
+        {{- end }}
         env:
           {{- range $key, $value := $root.Values.app.env }}
-          {{- $resolved := include "app.configValue" (list $value $root.Values.app.configData (printf "env %s" $key)) }}
           {{- if and (kindIs "map" $value) (hasKey $value "configDataKey") }}
           {{- $cfgKey := index $value "configDataKey" }}
           {{- $entry := index $root.Values.app.configData $cfgKey }}
@@ -49,32 +48,7 @@ spec:
           {{- end }}
           {{- end }}
           - name: {{ $key }}
-            {{- if kindIs "map" $value }}
-              {{- if hasKey $value "configDataKey" }}
-                {{- $cfgKey := index $value "configDataKey" }}
-                {{- $entry := index $root.Values.app.configData $cfgKey }}
-                {{- $entryValue := index $entry "value" }}
-                {{- if kindIs "slice" $entryValue }}
-                  {{- if and (gt (len $entryValue) 0) (kindIs "map" (index $entryValue 0)) }}
-            value: '{{ toJson $entryValue }}'
-                  {{- else }}
-            value: "{{ join "," $entryValue }}"
-                  {{- end }}
-                {{- else }}
-            value: "{{ $resolved }}"
-                {{- end }}
-              {{- else }}
-            value: '{{ toJson $value }}'
-              {{- end }}
-            {{- else if kindIs "slice" $value }}
-              {{- if and (gt (len $value) 0) (kindIs "map" (index $value 0)) }}
-            value: '{{ toJson $value }}'
-              {{- else }}
-            value: "{{ join "," $value }}"
-              {{- end }}
-            {{- else }}
-            value: "{{ $value }}"
-            {{- end }}
+            value: '{{ include "app.envValue" (list $value $root.Values.app.configData (printf "env %s" $key)) }}'
           {{- end }}
         # Liveness Probe
         {{- $liveKey := $root.Values.app.probes.liveness.tcpSocket.port }}
@@ -124,18 +98,44 @@ spec:
           {{- end }}
           {{- end }}
         {{- end }}
-        {{- if gt (len $pmap) 0 }}
+        {{- if or (gt (len $pmap) 0) (gt (len $fmap) 0) }}
         volumeMounts:
         {{- range $vname, $vcfg := $pmap }}
           - name: '{{ printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname)) }}'
             mountPath: {{ $vcfg.mountPath }}
         {{- end }}
+        {{- range $idx, $fcfg := $fmap }}
+          - name: '{{ include "app.fileResourceName" (list $root $fcfg $idx) }}'
+            {{- if $fcfg.subPath }}
+            mountPath: '{{ printf "%s/%s" (trimSuffix "/" $fcfg.mountPath) $fcfg.subPath }}'
+            subPath: '{{ $fcfg.subPath }}'
+            {{- else }}
+            mountPath: {{ $fcfg.mountPath }}
+            {{- end }}
+            readOnly: true
         {{- end }}
-      {{- if gt (len $pmap) 0 }}
+        {{- end }}
+      {{- if or (gt (len $pmap) 0) (gt (len $fmap) 0) }}
       volumes:
         {{- range $vname, $vcfg := $pmap }}
         - name: '{{ printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname)) }}'
           persistentVolumeClaim:
             claimName: '{{ default (printf "%s-%s" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $vname))) $vcfg.claimName }}'
+        {{- end }}
+        {{- range $idx, $fcfg := $fmap }}
+        - name: '{{ include "app.fileResourceName" (list $root $fcfg $idx) }}'
+          {{- if eq (lower (default "configmap" $fcfg.type)) "secret" }}
+          secret:
+            secretName: '{{ include "app.fileResourceName" (list $root $fcfg $idx) }}'
+            items:
+              - key: '{{ default "content" $fcfg.subPath }}'
+                path: '{{ default "content" $fcfg.subPath }}'
+          {{- else }}
+          configMap:
+            name: '{{ include "app.fileResourceName" (list $root $fcfg $idx) }}'
+            items:
+              - key: '{{ default "content" $fcfg.subPath }}'
+                path: '{{ default "content" $fcfg.subPath }}'
+          {{- end }}
         {{- end }}
       {{- end }}

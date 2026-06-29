@@ -35,12 +35,48 @@ Usage: {{ include "app.kebab" "dataVolume" }}
 {{- end -}}
 
 {{- /*
+fileResourceName: build a unique resource/volume name for app.files entries.
+Usage: {{ include "app.fileResourceName" (list $root $file $index) }}
+*/ -}}
+{{- define "app.fileResourceName" -}}
+{{- $root := index . 0 -}}
+{{- $file := index . 1 -}}
+{{- $index := index . 2 -}}
+{{- $type := lower (default "configmap" $file.type) -}}
+{{- printf "%s-%s-%s-%d" (trim (include "app.fullname" $root)) (trim (include "app.kebab" $file.name)) $type $index | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- /*
+helpers: app.assembleUrl
+Parameters: a map with keys: scheme (optional, default "http"), host, port (optional), path (optional)
+Returns: assembled URL string e.g. "https://172.16.125.46:8185/buyboost"
+*/ -}}
+{{- define "app.assembleUrl" -}}
+  {{- $v := . -}}
+  {{- $scheme := "http" -}}{{- if hasKey $v "scheme" -}}{{- $scheme = index $v "scheme" -}}{{- end -}}
+  {{- $host := index $v "host" -}}
+  {{- $path := "" -}}{{- if hasKey $v "path" -}}{{- $path = index $v "path" -}}{{- end -}}
+  {{- if hasKey $v "port" -}}
+    {{- printf "%s://%s:%v%s" $scheme $host (index $v "port") $path -}}
+  {{- else -}}
+    {{- printf "%s://%s%s" $scheme $host $path -}}
+  {{- end -}}
+{{- end -}}
+
+{{- /*
 helpers: app.configValue
 Parameters: list containing [ $cfg, $configData, $contextName ]
   - $cfg: the value to resolve (either a literal value or a map with configDataKey)
   - $configData: $.Values.app.configData
   - $contextName: string used in error messages
 Returns: the resolved value from configData, or the literal value as-is.
+
+configDataKey supports dot-notation to access sub-fields of a type:url entry:
+  configDataKey: buyboostOpenapiHost        → assembled URL string
+  configDataKey: buyboostOpenapiHost.host   → "172.16.125.46"
+  configDataKey: buyboostOpenapiHost.port   → 8185
+  configDataKey: buyboostOpenapiHost.scheme → "https"
+  configDataKey: buyboostOpenapiHost.path   → "/buyboost"
 */ -}}
 {{- define "app.configValue" -}}
   {{- $cfg := index . 0 -}}
@@ -48,7 +84,11 @@ Returns: the resolved value from configData, or the literal value as-is.
   {{- $contextName := index . 2 -}}
   {{- if kindIs "map" $cfg -}}
     {{- if hasKey $cfg "configDataKey" -}}
-      {{- $cfgKey := index $cfg "configDataKey" -}}
+      {{- $rawKey := index $cfg "configDataKey" -}}
+      {{- $parts := splitList "." $rawKey -}}
+      {{- $cfgKey := first $parts -}}
+      {{- $subField := "" -}}
+      {{- if gt (len $parts) 1 -}}{{- $subField = join "." (rest $parts) -}}{{- end -}}
       {{- if not (hasKey $configData $cfgKey) -}}
         {{- fail (printf "%s: configDataKey %q not found in .Values.app.configData" $contextName $cfgKey) -}}
       {{- end -}}
@@ -56,7 +96,21 @@ Returns: the resolved value from configData, or the literal value as-is.
       {{- if not (hasKey $entry "value") -}}
         {{- fail (printf "%s: configData entry %q has no 'value' field" $contextName $cfgKey) -}}
       {{- end -}}
-      {{- index $entry "value" -}}
+      {{- $entryValue := index $entry "value" -}}
+      {{- $entryType := "" -}}{{- if hasKey $entry "type" -}}{{- $entryType = index $entry "type" -}}{{- end -}}
+      {{- if $subField -}}
+        {{- if not (kindIs "map" $entryValue) -}}
+          {{- fail (printf "%s: configDataKey %q value is not a map; cannot access sub-field %q" $contextName $cfgKey $subField) -}}
+        {{- end -}}
+        {{- if not (hasKey $entryValue $subField) -}}
+          {{- fail (printf "%s: configData entry %q has no sub-field %q" $contextName $cfgKey $subField) -}}
+        {{- end -}}
+        {{- index $entryValue $subField -}}
+      {{- else if eq $entryType "url" -}}
+        {{- include "app.assembleUrl" $entryValue -}}
+      {{- else -}}
+        {{- $entryValue -}}
+      {{- end -}}
     {{- else -}}
       {{- $cfg -}}
     {{- end -}}
@@ -99,6 +153,74 @@ Renders the merged annotations block (without the "annotations:" key).
 {{ $ak }}: {{ include "app.configValue" (list $av $root.Values.app.configData (printf "annotation %s.%s" $asetName $ak)) | quote }}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{- /*
+helpers: app.envValue
+Parameters: list containing [ $cfg, $configData, $contextName ]
+Resolves a value for use as a container env var string:
+  - configDataKey reference → looks up configData entry value
+  - type:url entry          → assembled URL string (or sub-field via dot-notation)
+  - list of scalars         → comma-joined string  (e.g. storageForbiddenFileTypes)
+  - list of maps            → JSON string           (e.g. openapiUsers)
+  - plain map (no key)      → JSON string
+  - scalar                  → plain string
+*/ -}}
+{{- define "app.envValue" -}}
+  {{- $cfg := index . 0 -}}
+  {{- $configData := index . 1 -}}
+  {{- $contextName := index . 2 -}}
+  {{- if kindIs "map" $cfg -}}
+    {{- if hasKey $cfg "configDataKey" -}}
+      {{- $rawKey := index $cfg "configDataKey" -}}
+      {{- $parts := splitList "." $rawKey -}}
+      {{- $cfgKey := first $parts -}}
+      {{- $subField := "" -}}
+      {{- if gt (len $parts) 1 -}}{{- $subField = join "." (rest $parts) -}}{{- end -}}
+      {{- if not (hasKey $configData $cfgKey) -}}
+        {{- fail (printf "%s: configDataKey %q not found in .Values.app.configData" $contextName $cfgKey) -}}
+      {{- end -}}
+      {{- $entry := index $configData $cfgKey -}}
+      {{- if not (hasKey $entry "value") -}}
+        {{- fail (printf "%s: configData entry %q has no 'value' field" $contextName $cfgKey) -}}
+      {{- end -}}
+      {{- $v := index $entry "value" -}}
+      {{- $joinChar := "," -}}
+      {{- if hasKey $entry "joinChar" -}}
+        {{- $joinChar = index $entry "joinChar" -}}
+      {{- end -}}
+      {{- $entryType := "" -}}{{- if hasKey $entry "type" -}}{{- $entryType = index $entry "type" -}}{{- end -}}
+      {{- if $subField -}}
+        {{- if not (kindIs "map" $v) -}}
+          {{- fail (printf "%s: configDataKey %q value is not a map; cannot access sub-field %q" $contextName $cfgKey $subField) -}}
+        {{- end -}}
+        {{- if not (hasKey $v $subField) -}}
+          {{- fail (printf "%s: configData entry %q has no sub-field %q" $contextName $cfgKey $subField) -}}
+        {{- end -}}
+        {{- index $v $subField -}}
+      {{- else if eq $entryType "url" -}}
+        {{- include "app.assembleUrl" $v -}}
+      {{- else if kindIs "slice" $v -}}
+        {{- if and (gt (len $v) 0) (kindIs "map" (index $v 0)) -}}
+          {{- toJson $v -}}
+        {{- else -}}
+          {{- join $joinChar $v -}}
+        {{- end -}}
+      {{- else -}}
+        {{- $v -}}
+      {{- end -}}
+    {{- else -}}
+      {{- toJson $cfg -}}
+    {{- end -}}
+  {{- else if kindIs "slice" $cfg -}}
+    {{- if and (gt (len $cfg) 0) (kindIs "map" (index $cfg 0)) -}}
+      {{- toJson $cfg -}}
+    {{- else -}}
+      {{- join "," $cfg -}}
+    {{- end -}}
+  {{- else -}}
+    {{- $cfg -}}
+  {{- end -}}
 {{- end -}}
 
 {{- define "app.resolvePort" -}}

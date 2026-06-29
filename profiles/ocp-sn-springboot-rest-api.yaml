@@ -1,15 +1,29 @@
-name: ocp-single-node-springboot-rest-api
-description: A Spring Boot REST API application for openshift single node cluster.
+name: "ocp-single-node-springboot-rest-api"
+description: "A Spring Boot REST API application for openshift single node cluster."
 resources:
   mandatory:
-    - deployment
-    - networkPolicy
-    - service
-    - route
-    - resourceQuota
-    - project
+    - "deployment"
+    - "networkPolicy"
+    - "service"
+    - "route"
+    - "resourceQuota"
+    - "project"
   optional:
-    - configmap
-    - secret
-    - karstenBackup
-    - pvc
+    - "configmap"
+    - "secret"
+    - "karstenBackup"
+    - "pvc"
+chart:
+  apiVersion: "v2"
+  name: "chart-name"
+  description: "chart-description"
+  type: "application"
+  version: "1.0.0"
+  appVersion: "1.0.0"
+  keywords:
+    - "evs"
+    - "java"
+    - "springboot"
+    - "ocp-single-node-springboot-rest-api"
+  maintainers:
+    - name: "ops"
