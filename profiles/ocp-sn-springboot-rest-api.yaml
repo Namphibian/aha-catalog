@@ -1,6 +1,6 @@
 name: "ocp-single-node-springboot-rest-api"
 description: "A Spring Boot REST API application for openshift single node cluster."
-resources:
+templates:
   mandatory:
     - "deployment"
     - "networkPolicy"
@@ -13,6 +13,11 @@ resources:
     - "secret"
     - "karstenBackup"
     - "pvc"
+helpers:
+  - "_helpers"
+values:
+  - "values.schema"
+
 chart:
   apiVersion: "v2"
   name: "chart-name"

@@ -55,9 +55,9 @@ spec:
     {{- range .egress.allowedHosts }}
     - to:
         - ipBlock:
-            cidr: {{ .ip }}/32
+            cidr: {{ include "app.configValue" (list .ip $root.Values.app.configData (printf "networkpolicy egress %s ip" .name)) }}/32
       ports:
         - protocol: TCP
-          port: {{ .port }}
+          port: {{ include "app.configValue" (list .port $root.Values.app.configData (printf "networkpolicy egress %s port" .name)) }}
     {{- end }}
 {{- end }}
