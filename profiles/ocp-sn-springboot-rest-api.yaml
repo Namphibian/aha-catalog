@@ -29,3 +29,39 @@ chart:
     - "ocp-single-node-springboot-rest-api"
   maintainers:
     - name: "ops"
+notes: |
+  Thank you for installing {{ include "app.fullname" . }}.
+
+  Namespace: {{ .Release.Namespace }}
+  Chart: {{ .Chart.Name }} {{ .Chart.Version }}
+  App Version: {{ .Chart.AppVersion }}
+
+  Useful commands:
+    helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+    kubectl get pods -n {{ .Release.Namespace }}
+    kubectl get svc -n {{ .Release.Namespace }}
+
+  {{- if .Values.app.services }}
+  Services defined in values:
+  {{- range .Values.app.services }}
+    - {{ .name }} (type: {{ .type }})
+  {{- end }}
+  {{- end }}
+
+  {{- if .Values.app.route }}
+  Note: OpenShift Route is managed by templates/route.yaml.
+  Use `oc get route -n {{ .Release.Namespace }}` to inspect exposure.
+  {{- end }}
+readme: |
+    This is a Spring Boot REST API application for OpenShift single node cluster.
+    It includes the following mandatory templates:
+    - Deployment: Defines the deployment for the application, including the container image, ports, and environment variables.
+    - NetworkPolicy: Defines the network policy for the application, allowing or restricting traffic to the pods.
+    - Service: Defines the service for the application, allowing internal access to the pods.
+    - Route: Defines the route for the application, allowing external access to the service.
+    - ResourceQuota: Defines resource limits and quotas for the application.
+    - Project: A namespace for the application, with resource limits and quotas defined in the ResourceQuota template.
+    And the following optional templates:
+    - files: configurations and secrets to be mounted into a files on the container.
+    - Kasten Backup: Kasten K10 backup and restore solution for Kubernetes.
+    - PersistentVolumeClaim (PVC): Persistent storage for the application.
