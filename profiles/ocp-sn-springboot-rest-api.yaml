@@ -10,7 +10,7 @@ templates:
     - "project"
   optional:
     - "files"
-    - "karstenBackup"
+    - "kastenBackup"
     - "pvc"
 helpers:
   - "_helpers"
