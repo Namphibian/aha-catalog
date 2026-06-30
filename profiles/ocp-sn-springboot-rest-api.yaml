@@ -9,15 +9,12 @@ templates:
     - "resourceQuota"
     - "project"
   optional:
-    - "configmap"
-    - "secret"
+    - "files"
     - "karstenBackup"
     - "pvc"
 helpers:
   - "_helpers"
-values:
-  - "values.schema"
-
+values: "values.schema"
 chart:
   apiVersion: "v2"
   name: "chart-name"
